@@ -139,6 +139,108 @@ button.danger { background: transparent; border-color: var(--red); color: var(--
   font-size: 13px;
 }
 
+/* ---------- 片段放置提示 ---------- */
+.placing-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(79, 140, 255, 0.14);
+  border-bottom: 1px solid var(--accent);
+  color: #9dbdff;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.placing-cancel {
+  padding: 2px 12px;
+  font-size: 12px;
+}
+.graph-canvas.placing { cursor: crosshair; }
+.graph-canvas.placing:active { cursor: crosshair; }
+
+/* ---------- 口令片段库 ---------- */
+.snippet-save {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+.snippet-save h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.snippet-save button { margin-top: 2px; }
+.snippet-count b { color: var(--text); font-weight: 600; }
+
+.snippet-library {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+.snippet-library h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+.snippet-placing-hint {
+  background: rgba(79, 140, 255, 0.1);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.snippet-cancel {
+  padding: 3px 12px;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.snippet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.snippet-item {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.snippet-item.placing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.snippet-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.snippet-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snippet-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.snippet-item-actions {
+  display: flex;
+  gap: 6px;
+}
+.snippet-item-actions button { padding: 3px 12px; font-size: 12px; }
+.snippet-del {
+  border-color: var(--red);
+  color: var(--red);
+}
+.snippet-note { margin-top: 10px; }
+
 /* ---------- 主区域 ---------- */
 .main {
   flex: 1;

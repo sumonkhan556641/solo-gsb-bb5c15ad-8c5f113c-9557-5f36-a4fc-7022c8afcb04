@@ -12,19 +12,26 @@ interface GraphCanvasProps {
   cycle?: CycleInfo;
   runtime: Record<string, NodeRuntime>;
   selection: Selection | null;
+  /** 片段放置模式：在画布空白处点击即以该位置为根口令锚点放置片段副本 */
+  placingSnippetId?: string | null;
   onSelect: (sel: Selection | null) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
   onAddEdge: (from: string, to: string) => void;
+  /** 放置片段：参数为世界坐标（根口令左上角锚点） */
+  onPlaceSnippet: (snippetId: string, x: number, y: number) => void;
+  onCancelPlacing: () => void;
 }
 
 type DragState =
   | { kind: 'node'; id: string; dx: number; dy: number }
   | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number }
   | { kind: 'edge'; from: string; wx: number; wy: number }
+  | { kind: 'place'; sx: number; sy: number }
   | null;
 
 export function GraphCanvas(props: GraphCanvasProps) {
-  const { project, schedule, cycle, runtime, selection } = props;
+  const { project, schedule, cycle, runtime, selection, placingSnippetId } = props;
+  const placing = !!placingSnippetId;
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [drag, setDrag] = useState<DragState>(null);
@@ -53,6 +60,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
 
   const handleNodePointerDown = (e: React.PointerEvent, n: CommandNode) => {
     e.stopPropagation();
+    if (placing) return; // 放置模式下节点不响应选中与拖动
     (e.target as Element).setPointerCapture?.(e.pointerId);
     props.onSelect({ type: 'node', id: n.id });
     const w = toWorld(e.clientX, e.clientY);
@@ -61,12 +69,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
 
   const handlePortPointerDown = (e: React.PointerEvent, n: CommandNode) => {
     e.stopPropagation();
+    if (placing) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     const w = toWorld(e.clientX, e.clientY);
     setDrag({ kind: 'edge', from: n.id, wx: w.x, wy: w.y });
   };
 
   const handleBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (placing) {
+      // 放置模式：记录起点用于区分“点击放置”与“拖动取消”，不平移、不改选中
+      setDrag({ kind: 'place', sx: e.clientX, sy: e.clientY });
+      return;
+    }
     props.onSelect(null);
     setDrag({ kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y });
   };
@@ -79,10 +93,11 @@ export function GraphCanvas(props: GraphCanvasProps) {
       props.onMoveNode(d.id, Math.round(w.x - d.dx), Math.round(w.y - d.dy));
     } else if (d.kind === 'pan') {
       setView((v) => ({ ...v, x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy }));
-    } else {
+    } else if (d.kind === 'edge') {
       const w = toWorld(e.clientX, e.clientY);
       setDrag({ ...d, wx: w.x, wy: w.y });
     }
+    // kind === 'place'：不做平移，位移量在 pointerup 时判断
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -92,6 +107,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const nodeEl = el?.closest?.('[data-node-id]');
       const targetId = nodeEl?.getAttribute('data-node-id');
       if (targetId) props.onAddEdge(d.from, targetId);
+    } else if (d?.kind === 'place' && placingSnippetId) {
+      // 位移超过阈值视为放弃放置的拖动，避免平移意图被误判为放置
+      const moved = Math.hypot(e.clientX - d.sx, e.clientY - d.sy);
+      if (moved < 6) {
+        // 仅在画布空白处放置：释放在节点/约束上时忽略
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const onElement = el?.closest?.('[data-node-id], .edge');
+        if (!onElement) {
+          const w = toWorld(e.clientX, e.clientY);
+          props.onPlaceSnippet(placingSnippetId, Math.round(w.x), Math.round(w.y));
+        }
+      }
     }
     setDrag(null);
   };
@@ -113,11 +140,12 @@ export function GraphCanvas(props: GraphCanvasProps) {
   return (
     <svg
       ref={svgRef}
-      className="graph-canvas"
+      className={`graph-canvas ${placing ? 'placing' : ''}`}
       onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onWheel={handleWheel}
+      onPointerCancel={() => setDrag(null)}
+      onWheel={placing ? undefined : handleWheel}
     >
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -153,7 +181,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           const labelY = self ? y1 - 34 : midY;
           const marker = isCycle ? 'arrow-cycle' : isCritical ? 'arrow-critical' : 'arrow';
           return (
-            <g key={e.id} className={cls} onPointerDown={(ev) => { ev.stopPropagation(); props.onSelect({ type: 'edge', id: e.id }); }}>
+            <g key={e.id} className={cls} onPointerDown={(ev) => { ev.stopPropagation(); if (!placing) props.onSelect({ type: 'edge', id: e.id }); }}>
               <path d={d} className="edge-hit" fill="none" />
               <path d={d} className="edge-line" fill="none" markerEnd={`url(#${marker})`} />
               <g className="edge-label" transform={`translate(${labelX},${labelY})`}>

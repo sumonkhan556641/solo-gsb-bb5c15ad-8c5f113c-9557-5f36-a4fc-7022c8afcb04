@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { CycleInfo, Project, ScheduleResult } from './types';
+import { CommandSnippet, CycleInfo, Project, ScheduleResult } from './types';
 import { Selection } from './GraphCanvas';
 import { runWhatIf } from './schedule';
+import { SnippetLibrary, SnippetSaveSection } from './SnippetPanel';
 
 interface SidePanelProps {
   project: Project;
@@ -11,6 +12,13 @@ interface SidePanelProps {
   cycle?: CycleInfo;
   /** 班组总人数（正整数），用人数不可超过该值 */
   crewSize: number;
+  /** 片段库与片段放置状态 */
+  snippets: CommandSnippet[];
+  placingSnippetId: string | null;
+  onCreateSnippet: (rootNodeId: string, name: string) => void;
+  onPlaceSnippet: (snippetId: string) => void;
+  onCancelPlacingSnippet: () => void;
+  onDeleteSnippet: (snippetId: string) => void;
   onUpdateNode: (id: string, patch: { name?: string; duration?: number; crew?: number }) => void;
   onUpdateEdge: (id: string, patch: { minDelay?: number }) => void;
   onDeleteNode: (id: string) => void;
@@ -90,6 +98,11 @@ export function SidePanel(props: SidePanelProps) {
           valueLabel="试算持续时长（秒）"
           onApply={(v) => props.onUpdateNode(node.id, { duration: v })}
         />
+        <SnippetSaveSection
+          project={project}
+          rootId={node.id}
+          onCreate={(name) => props.onCreateSnippet(node.id, name)}
+        />
       </div>
     );
   }
@@ -150,6 +163,7 @@ export function SidePanel(props: SidePanelProps) {
         <li>工具栏勾选「开场截止」后按截止秒数倒排，浮动最小的链路即关键链</li>
         <li>工具栏设置班组人数、口令侧栏设置用人数后，底部「班组排程」按容量实时重排</li>
         <li>选中口令或约束后可在侧栏「增量预演」试算，应用前不会保存</li>
+        <li>选中口令后可在侧栏下方保存片段；在「口令片段库」中选择并到画布空白处点击放置</li>
       </ul>
       {schedule && (
         <p className="hint">
@@ -166,6 +180,13 @@ export function SidePanel(props: SidePanelProps) {
           ，关键链 {schedule.backward.criticalNodeIds.length} 条口令。
         </p>
       )}
+      <SnippetLibrary
+        snippets={props.snippets}
+        placingSnippetId={props.placingSnippetId}
+        onPlace={props.onPlaceSnippet}
+        onCancelPlacing={props.onCancelPlacingSnippet}
+        onDelete={props.onDeleteSnippet}
+      />
     </div>
   );
 }

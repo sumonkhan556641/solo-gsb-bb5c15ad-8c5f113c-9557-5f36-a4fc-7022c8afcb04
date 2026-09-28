@@ -26,6 +26,15 @@ interface BreakPeriod {
   end: number;
 }
 
+/** 口令片段：根口令沿出边可达子图的命名快照（内部沿用原图 ID，放置时由前端重生成） */
+interface CommandSnippet {
+  id: string;
+  name: string;
+  rootId: string;
+  nodes: CommandNode[];
+  edges: CommandEdge[];
+}
+
 interface Project {
   nodes: CommandNode[];
   edges: CommandEdge[];
@@ -35,6 +44,8 @@ interface Project {
   crewSize?: number;
   /** 休息时段列表（可选，缺省为空，兼容旧数据；仅影响班组排程） */
   breaks?: BreakPeriod[];
+  /** 口令片段库（可选，缺省为空，兼容旧数据，随项目持久化） */
+  snippets?: CommandSnippet[];
 }
 
 const PORT = Number(process.env.PORT || 8080);
@@ -124,6 +135,46 @@ function isValidProject(p: unknown): p is Project {
       if (typeof b.end !== 'number' || !isFinite(b.end) || b.start >= b.end) return false;
       if (breakIds.has(b.id)) return false;
       breakIds.add(b.id);
+    }
+  }
+  // 口令片段库：可选，缺省为空（兼容旧数据）。
+  // 每个片段：id/name 非空且片段 id 不重复；根口令在内部节点中；
+  // 内部节点/边 ID 各自唯一（自引用边允许）；内部边端点均在片段内；
+  // 数值字段规则与主图一致（用人数为不超过班组人数的非负整数）。
+  if (proj.snippets !== undefined) {
+    if (!Array.isArray(proj.snippets)) return false;
+    const snippetIds = new Set<string>();
+    for (const s of proj.snippets) {
+      if (!s || typeof s.id !== 'string' || s.id === '') return false;
+      if (snippetIds.has(s.id)) return false;
+      snippetIds.add(s.id);
+      if (typeof s.name !== 'string' || s.name.trim() === '') return false;
+      if (!Array.isArray(s.nodes) || s.nodes.length === 0 || !Array.isArray(s.edges)) return false;
+
+      const snippetNodeIds = new Set<string>();
+      for (const n of s.nodes) {
+        if (!n || typeof n.id !== 'string' || n.id === '') return false;
+        if (snippetNodeIds.has(n.id)) return false; // 片段内节点 ID 唯一
+        snippetNodeIds.add(n.id);
+        if (typeof n.name !== 'string') return false;
+        if (typeof n.duration !== 'number' || !isFinite(n.duration) || n.duration < 0) return false;
+        if (typeof n.x !== 'number' || typeof n.y !== 'number') return false;
+        if (n.crew !== undefined) {
+          // 与主图一致：非负整数且不超过班组人数（放置时前端亦会兜底压减）
+          if (typeof n.crew !== 'number' || !Number.isInteger(n.crew) || n.crew < 0) return false;
+          if (n.crew > capacity) return false;
+        }
+      }
+      if (!snippetNodeIds.has(s.rootId)) return false; // 根口令必须在片段内
+
+      const snippetEdgeIds = new Set<string>();
+      for (const e of s.edges) {
+        if (!e || typeof e.id !== 'string' || e.id === '') return false;
+        if (snippetEdgeIds.has(e.id)) return false; // 片段内边 ID 唯一
+        snippetEdgeIds.add(e.id);
+        if (!snippetNodeIds.has(e.from) || !snippetNodeIds.has(e.to)) return false; // 端点均在片段内
+        if (typeof e.minDelay !== 'number' || !isFinite(e.minDelay) || e.minDelay < 0) return false;
+      }
     }
   }
   return true;
