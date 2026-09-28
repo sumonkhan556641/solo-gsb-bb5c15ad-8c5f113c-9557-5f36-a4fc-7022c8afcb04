@@ -5,13 +5,18 @@ import { GraphCanvas, Selection } from './GraphCanvas';
 import { ReplanPanel } from './ReplanPanel';
 import { computeCrewSchedule, computeReplan, computeSchedule } from './schedule';
 import { SidePanel } from './SidePanel';
+import { SnippetPanel } from './SnippetPanel';
 import { Timeline } from './Timeline';
-import { BreakPeriod, CommandNode, Project, ScheduleResult } from './types';
+import { BreakPeriod, CommandNode, CommandSnippet, Project, ScheduleResult } from './types';
+import { buildSnippet, instantiateSnippet } from './snippets';
 import { useSimulation } from './useSimulation';
 
 const EMPTY: Project = { nodes: [], edges: [] };
 
-/** 兼容旧数据：班组人数缺省 1（正整数），口令用人数缺省 0（不超过班组人数的非负整数），休息时段缺省空。 */
+/**
+ * 兼容旧数据：班组人数缺省 1（正整数），口令用人数缺省 0（不超过班组人数的非负整数），
+ * 休息时段缺省空，口令片段库缺省空。
+ */
 function normalizeProject(p: Project): Project {
   const raw = p.crewSize;
   const crewSize =
@@ -35,16 +40,63 @@ function normalizeProject(p: Project): Project {
           end: b.end,
         }))
     : [];
+  // 口令片段库：旧项目缺省为空；仅保留结构完整（根命中、边端点在片段内）的片段
+  const snippets = Array.isArray(p.snippets)
+    ? p.snippets.filter(isValidSnippet).map(normalizeSnippet)
+    : [];
   return {
     ...p,
     crewSize,
     breaks,
+    snippets,
     nodes: p.nodes.map((n) => {
       const c = n.crew;
       const crew =
         typeof c === 'number' && Number.isInteger(c) && c >= 0 ? Math.min(c, crewSize) : 0;
       return { ...n, crew };
     }),
+  };
+}
+
+/** 片段结构完整性兜底（服务端已有同构校验，这里用于兼容异常的本地旧数据）。 */
+function isValidSnippet(s: unknown): s is CommandSnippet {
+  if (!s || typeof s !== 'object') return false;
+  const sn = s as CommandSnippet;
+  if (typeof sn.id !== 'string' || sn.id === '') return false;
+  if (typeof sn.name !== 'string' || sn.name === '') return false;
+  if (typeof sn.rootId !== 'string' || sn.rootId === '') return false;
+  if (!Array.isArray(sn.nodes) || !Array.isArray(sn.edges)) return false;
+  const nodeIds = new Set(sn.nodes.map((n) => n?.id).filter((id): id is string => typeof id === 'string'));
+  if (!nodeIds.has(sn.rootId)) return false;
+  for (const e of sn.edges) {
+    if (!e || typeof e.id !== 'string' || !nodeIds.has(e.from) || !nodeIds.has(e.to)) return false;
+  }
+  return true;
+}
+
+/** 片段内字段兜底：用人数缺省 0，名称 / 时长 / 等待秒数非法时给安全默认值。 */
+function normalizeSnippet(s: CommandSnippet): CommandSnippet {
+  return {
+    ...s,
+    nodes: s.nodes.map((n) => ({
+      ...n,
+      name: typeof n.name === 'string' ? n.name : '未命名口令',
+      duration:
+        typeof n.duration === 'number' && Number.isFinite(n.duration) && n.duration >= 0
+          ? n.duration
+          : 0,
+      crew:
+        typeof n.crew === 'number' && Number.isInteger(n.crew) && n.crew >= 0 ? n.crew : 0,
+      x: typeof n.x === 'number' && Number.isFinite(n.x) ? n.x : 0,
+      y: typeof n.y === 'number' && Number.isFinite(n.y) ? n.y : 0,
+    })),
+    edges: s.edges.map((e) => ({
+      ...e,
+      minDelay:
+        typeof e.minDelay === 'number' && Number.isFinite(e.minDelay) && e.minDelay >= 0
+          ? e.minDelay
+          : 0,
+    })),
   };
 }
 
@@ -249,6 +301,63 @@ export default function App() {
     [update],
   );
 
+  // 当前处于“放置模式”的片段 id（选中片段后点击画布空白处放置）
+  const [placingSnippetId, setPlacingSnippetId] = useState<string | null>(null);
+
+  // 片段落放 / 保存需要在状态更新函数外生成新 ID（StrictMode 下更新函数可能重复执行）
+  const projectRef = useRef<Project | null>(null);
+  projectRef.current = project;
+
+  const saveSnippet = useCallback(
+    (rootId: string, name: string) => {
+      const current = projectRef.current;
+      if (!current) return;
+      const snippet = buildSnippet(current, rootId, name);
+      if (!snippet) return;
+      update((p) =>
+        p.nodes.some((n) => n.id === rootId)
+          ? { ...p, snippets: [...(p.snippets ?? []), snippet] }
+          : p,
+      );
+    },
+    [update],
+  );
+
+  const deleteSnippet = useCallback(
+    (id: string) => {
+      update((p) => ({ ...p, snippets: (p.snippets ?? []).filter((s) => s.id !== id) }));
+      setPlacingSnippetId((cur) => (cur === id ? null : cur));
+    },
+    [update],
+  );
+
+  /**
+   * 在画布世界坐标 (x, y) 放置片段副本：以原根口令为锚点整体平移，
+   * 复制节点与边全部生成新 ID 并重映射端点；不自动连接原图，
+   * 副本与片段、原图彼此独立。放置后退出放置模式并选中新的根口令。
+   */
+  const placeSnippet = useCallback(
+    (snippetId: string, x: number, y: number) => {
+      const current = projectRef.current;
+      if (!current) return;
+      const snippet = (current.snippets ?? []).find((s) => s.id === snippetId);
+      if (!snippet) {
+        setPlacingSnippetId(null);
+        return;
+      }
+      const placed = instantiateSnippet(snippet, x, y, current.crewSize ?? 1);
+      if (!placed) return;
+      update((p) => ({
+        ...p,
+        nodes: [...p.nodes, ...placed.nodes],
+        edges: [...p.edges, ...placed.edges],
+      }));
+      setPlacingSnippetId(null);
+      setSelection({ type: 'node', id: placed.rootNodeId });
+    },
+    [update],
+  );
+
   if (loadError) {
     return <div className="boot-message">加载失败：{loadError}</div>;
   }
@@ -260,6 +369,10 @@ export default function App() {
   const canStart = project.nodes.length > 0 && sim.state !== 'running' && sim.state !== 'paused';
   const deadline = project.deadline;
   const backward = effectiveSchedule?.backward;
+  // 放置模式：选中的片段对象（删除片段后自动退出）
+  const placingSnippet = placingSnippetId
+    ? (project.snippets ?? []).find((s) => s.id === placingSnippetId) ?? null
+    : null;
   // 已确认续排且仍在待执行的口令数（用于工具栏提示）
   const replanPending = Object.keys(sim.replanStarts).filter(
     (id) => (sim.runtime[id]?.status ?? 'pending') === 'pending',
@@ -359,7 +472,25 @@ export default function App() {
             onSelect={setSelection}
             onMoveNode={moveNode}
             onAddEdge={addEdge}
+            placingSnippet={placingSnippet}
+            onPlaceSnippet={(x, y) => placingSnippet && placeSnippet(placingSnippet.id, x, y)}
+            onCancelPlacing={() => setPlacingSnippetId(null)}
           />
+          <SnippetPanel
+            project={project}
+            selection={selection}
+            placingSnippetId={placingSnippetId}
+            onSaveSnippet={saveSnippet}
+            onDeleteSnippet={deleteSnippet}
+            onSelectForPlacing={(id) =>
+              setPlacingSnippetId((cur) => (cur === id ? null : id))
+            }
+          />
+          {placingSnippet && (
+            <div className="snippet-placement-hint">
+              放置片段「{placingSnippet.name}」：点击画布空白处以原根口令为锚点放置（Esc 或再次点选取消）
+            </div>
+          )}
         </div>
         <SidePanel
           project={project}

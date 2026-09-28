@@ -163,6 +163,168 @@ button.danger { background: transparent; border-color: var(--red); color: var(--
   touch-action: none;
 }
 .graph-canvas:active { cursor: grabbing; }
+.graph-canvas.placing { cursor: crosshair; }
+.graph-canvas.placing:active { cursor: crosshair; }
+
+/* 片段放置模式：覆盖层拦截节点 / 边交互（事件仍冒泡到 svg 处理落放） */
+.placing-overlay {
+  fill: rgba(20, 22, 28, 0.18);
+  pointer-events: all;
+}
+
+/* 片段放置虚影 */
+.snippet-ghost { pointer-events: none; }
+.snippet-ghost-node {
+  fill: rgba(79, 140, 255, 0.16);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-dasharray: 6 4;
+}
+.snippet-ghost-edge {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+  opacity: 0.7;
+}
+.snippet-ghost-name { fill: #9dbdff; font-size: 13px; font-weight: 600; }
+.snippet-ghost-meta { fill: var(--muted); font-size: 11px; }
+
+/* ---------- 口令片段库面板 ---------- */
+.snippet-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 252px;
+  background: rgba(29, 32, 41, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  overflow: hidden;
+}
+.snippet-panel.collapsed .snippet-head { border-bottom: none; }
+.snippet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.snippet-title { font-size: 13px; font-weight: 600; }
+.snippet-count {
+  color: var(--muted);
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 17px;
+}
+.snippet-collapse {
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+}
+.snippet-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.snippet-add {
+  width: 100%;
+  margin-top: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.snippet-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+.snippet-create { margin-top: 10px; }
+.snippet-preview {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0 0 8px;
+}
+.snippet-create input {
+  width: 100%;
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+.snippet-create input:focus { outline: none; border-color: var(--accent); }
+.snippet-create-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.snippet-create-actions button { padding: 5px 14px; font-size: 12px; }
+.snippet-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.snippet-item {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.snippet-item.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.snippet-pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+}
+.snippet-pick:hover:not(:disabled) { border-color: transparent; }
+.snippet-name { font-size: 12px; font-weight: 600; }
+.snippet-meta { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.snippet-del {
+  align-self: center;
+  margin-right: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  border-color: var(--red);
+  color: var(--red);
+}
+.snippet-placement-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11;
+  background: rgba(79, 140, 255, 0.16);
+  border: 1px solid var(--accent);
+  color: #9dbdff;
+  border-radius: 16px;
+  padding: 6px 16px;
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 /* ---------- 节点 ---------- */
 .node { cursor: move; }

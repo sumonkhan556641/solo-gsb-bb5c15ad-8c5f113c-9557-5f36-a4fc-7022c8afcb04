@@ -26,6 +26,18 @@ interface BreakPeriod {
   end: number;
 }
 
+/**
+ * 口令片段：以某条口令为根、沿出边可达的全部后继口令构成的子图快照。
+ * 节点 / 边 ID 仅在片段内部唯一；放置时整体重新生成，故不与主图 ID 冲突。
+ */
+interface CommandSnippet {
+  id: string;
+  name: string;
+  rootId: string;
+  nodes: CommandNode[];
+  edges: CommandEdge[];
+}
+
 interface Project {
   nodes: CommandNode[];
   edges: CommandEdge[];
@@ -35,6 +47,8 @@ interface Project {
   crewSize?: number;
   /** 休息时段列表（可选，缺省为空，兼容旧数据；仅影响班组排程） */
   breaks?: BreakPeriod[];
+  /** 口令片段库（可选，缺省为空，兼容旧数据） */
+  snippets?: CommandSnippet[];
 }
 
 const PORT = Number(process.env.PORT || 8080);
@@ -124,6 +138,47 @@ function isValidProject(p: unknown): p is Project {
       if (typeof b.end !== 'number' || !isFinite(b.end) || b.start >= b.end) return false;
       if (breakIds.has(b.id)) return false;
       breakIds.add(b.id);
+    }
+  }
+  // 口令片段库：可选，缺省为空（兼容旧数据）。
+  // 片段 id 在库内唯一；片段内节点 / 边 id 在片段内唯一（与主图不冲突，放置时整体重新生成）；
+  // 根口令必须命中片段节点；边的两个端点都必须在片段内。
+  if (proj.snippets !== undefined) {
+    if (!Array.isArray(proj.snippets)) return false;
+    const snippetIds = new Set<string>();
+    for (const s of proj.snippets) {
+      if (!s || typeof s.id !== 'string' || s.id === '') return false;
+      if (snippetIds.has(s.id)) return false;
+      snippetIds.add(s.id);
+      if (typeof s.name !== 'string' || s.name === '') return false;
+      if (typeof s.rootId !== 'string' || s.rootId === '') return false;
+      if (!Array.isArray(s.nodes) || !Array.isArray(s.edges)) return false;
+
+      const nodeIds = new Set<string>();
+      for (const n of s.nodes) {
+        if (!n || typeof n.id !== 'string' || n.id === '') return false;
+        if (typeof n.name !== 'string' || n.name === '') return false;
+        if (typeof n.duration !== 'number' || !isFinite(n.duration) || n.duration < 0) return false;
+        if (typeof n.x !== 'number' || !Number.isFinite(n.x)) return false;
+        if (typeof n.y !== 'number' || !Number.isFinite(n.y)) return false;
+        // 用人数：可选非负整数；不按当前班组容量校验（放置时按当时容量兜底）
+        if (n.crew !== undefined) {
+          if (typeof n.crew !== 'number' || !Number.isInteger(n.crew) || n.crew < 0) return false;
+        }
+        if (nodeIds.has(n.id)) return false;
+        nodeIds.add(n.id);
+      }
+      if (!nodeIds.has(s.rootId)) return false;
+
+      const edgeIds = new Set<string>();
+      for (const e of s.edges) {
+        if (!e || typeof e.id !== 'string' || e.id === '') return false;
+        if (edgeIds.has(e.id)) return false;
+        edgeIds.add(e.id);
+        if (typeof e.from !== 'string' || typeof e.to !== 'string') return false;
+        if (!nodeIds.has(e.from) || !nodeIds.has(e.to)) return false;
+        if (typeof e.minDelay !== 'number' || !isFinite(e.minDelay) || e.minDelay < 0) return false;
+      }
     }
   }
   return true;

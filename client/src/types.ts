@@ -34,6 +34,20 @@ export interface BreakPeriod {
   end: number;
 }
 
+/**
+ * 口令片段：以某条口令为根、沿出边可达的全部后继口令构成的子图快照。
+ * 节点 / 边 ID 仅在片段内部唯一（放置时会整体重新生成）；
+ * 仅收录两个端点都在片段内的边，rootId 必须命中 nodes。
+ */
+export interface CommandSnippet {
+  id: string;
+  name: string;
+  /** 片段根口令 id（放置时以它为锚点整体平移） */
+  rootId: string;
+  nodes: CommandNode[];
+  edges: CommandEdge[];
+}
+
 export interface Project {
   nodes: CommandNode[];
   edges: CommandEdge[];
@@ -43,6 +57,8 @@ export interface Project {
   crewSize?: number;
   /** 休息时段列表；缺省为空（兼容旧数据），仅影响班组排程 */
   breaks?: BreakPeriod[];
+  /** 口令片段库；缺省为空（兼容旧数据），随项目持久化 */
+  snippets?: CommandSnippet[];
 }
 
 export interface CycleInfo {

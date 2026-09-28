@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
-import { CommandNode, CycleInfo, NodeRuntime, Project, ScheduleResult } from './types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CommandNode, CommandSnippet, CycleInfo, NodeRuntime, Project, ScheduleResult } from './types';
 
 export const NODE_W = 132;
 export const NODE_H = 54;
@@ -15,6 +15,12 @@ interface GraphCanvasProps {
   onSelect: (sel: Selection | null) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
   onAddEdge: (from: string, to: string) => void;
+  /** 非 null 时进入片段放置模式：节点 / 边不可交互，点击空白处以锚点放置 */
+  placingSnippet?: CommandSnippet | null;
+  /** 在画布世界坐标 (x, y) 处放置当前片段 */
+  onPlaceSnippet?: (x: number, y: number) => void;
+  /** 取消放置模式（Esc 等） */
+  onCancelPlacing?: () => void;
 }
 
 type DragState =
@@ -25,11 +31,14 @@ type DragState =
 
 export function GraphCanvas(props: GraphCanvasProps) {
   const { project, schedule, cycle, runtime, selection } = props;
+  const placing = props.placingSnippet ?? null;
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [drag, setDrag] = useState<DragState>(null);
   const dragRef = useRef<DragState>(null);
   dragRef.current = drag;
+  // 放置模式下指针所在的世界坐标（片段根锚点会对齐到该位置）；null 表示尚未定位
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
 
   const toWorld = useCallback(
     (clientX: number, clientY: number) => {
@@ -67,9 +76,49 @@ export function GraphCanvas(props: GraphCanvasProps) {
   };
 
   const handleBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (placing) {
+      // 放置模式：拦截画布交互，不开始平移、不改选中，pointerup 时落放
+      e.stopPropagation();
+      return;
+    }
     props.onSelect(null);
     setDrag({ kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y });
   };
+
+  // 放置模式：移动指针更新片段虚影；点击空白处（pointerup）以锚点落放
+  const handlePlacingMove = (e: React.PointerEvent) => {
+    if (!placing) return;
+    const w = toWorld(e.clientX, e.clientY);
+    setGhost(w);
+  };
+
+  const handlePlacingUp = (e: React.PointerEvent) => {
+    if (!placing) return;
+    const w = toWorld(e.clientX, e.clientY);
+    props.onPlaceSnippet?.(w.x, w.y);
+  };
+
+  // Esc 取消放置
+  useEffect(() => {
+    if (!placing) {
+      setGhost(null);
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') props.onCancelPlacing?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placing?.id]);
+
+  // 进入放置模式时把虚影先放到视口中心，避免移动指针前虚影缺失
+  useEffect(() => {
+    if (!placing || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    setGhost(toWorld(rect.left + rect.width / 2, rect.top + rect.height / 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placing?.id]);
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
@@ -110,14 +159,25 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const draft = drag?.kind === 'edge' ? drag : null;
   const draftFrom = draft ? nodeById.get(draft.from) : undefined;
 
+  // 放置虚影：以片段根口令为锚点整体平移到 ghost 坐标
+  const ghostRoot = placing ? placing.nodes.find((n) => n.id === placing.rootId) : undefined;
+  const ghostOffset =
+    placing && ghostRoot && ghost ? { dx: ghost.x - ghostRoot.x, dy: ghost.y - ghostRoot.y } : null;
+
   return (
     <svg
       ref={svgRef}
-      className="graph-canvas"
+      className={`graph-canvas ${placing ? 'placing' : ''}`}
       onPointerDown={handleBackgroundPointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onWheel={handleWheel}
+      onPointerMove={(e) => {
+        if (placing) handlePlacingMove(e);
+        else handlePointerMove(e);
+      }}
+      onPointerUp={(e) => {
+        if (placing) handlePlacingUp(e);
+        else handlePointerUp(e);
+      }}
+      onWheel={placing ? undefined : handleWheel}
     >
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -216,7 +276,37 @@ export function GraphCanvas(props: GraphCanvasProps) {
             </g>
           );
         })}
+
+        {placing && ghostOffset && (
+          <g className="snippet-ghost" transform={`translate(${ghostOffset.dx},${ghostOffset.dy})`}>
+            {placing.edges.map((e) => {
+              const a = placing.nodes.find((n) => n.id === e.from);
+              const b = placing.nodes.find((n) => n.id === e.to);
+              if (!a || !b) return null;
+              const x1 = a.x + NODE_W;
+              const y1 = a.y + NODE_H / 2;
+              const x2 = b.x;
+              const y2 = b.y + NODE_H / 2;
+              const d = `M ${x1} ${y1} C ${x1 + 50} ${y1}, ${x2 - 50} ${y2}, ${x2} ${y2}`;
+              return <path key={e.id} d={d} className="snippet-ghost-edge" fill="none" />;
+            })}
+            {placing.nodes.map((n) => (
+              <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+                <rect
+                  className="snippet-ghost-node"
+                  width={NODE_W}
+                  height={NODE_H}
+                  rx={8}
+                />
+                <text className="snippet-ghost-name" x={10} y={21}>{n.name}</text>
+                <text className="snippet-ghost-meta" x={10} y={40}>时长 {n.duration}s</text>
+              </g>
+            ))}
+          </g>
+        )}
       </g>
+
+      {placing && <rect className="placing-overlay" x={0} y={0} width="100%" height="100%" />}
     </svg>
   );
 }
